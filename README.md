@@ -12,7 +12,7 @@
 KoopmanModeDecomposition.jl allows you to define liftings using a simple composition pipeline, fit an approximation of the Koopman operator, and step it forward in time.
 
 ```julia
-using KMD
+using KoopmanModeDecomposition
 
 # 1. Generate some dummy data (3 variables, 100 timesteps)
 X = rand(3, 100)
