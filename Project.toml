@@ -1,0 +1,13 @@
+name = "KoopmanModeDecomposition"
+uuid = "fa1c4275-15d9-4b6b-ac6e-8f8cb1e5cce9"
+authors = ["Adam Uchytil"]
+version = "1.0.0-DEV"
+
+[compat]
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
