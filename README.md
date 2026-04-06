@@ -9,7 +9,7 @@
 
 
 ## Quick Start
-KMD.jl allows you to define liftings using a simple composition pipeline, fit an approximation of the Koopman operator, and step it forward in time.
+KoopmanModeDecomposition.jl allows you to define liftings using a simple composition pipeline, fit an approximation of the Koopman operator, and step it forward in time.
 
 ```julia
 using KMD
