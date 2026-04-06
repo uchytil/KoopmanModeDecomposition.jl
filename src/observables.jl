@@ -29,6 +29,20 @@ max_delay(o::MappedObs) = max_delay(o.obs)
 
 Base.:∘(f::Function, obs::AbstractObservable) = MappedObs(f, obs)
 
+
+struct ChainedObs{O1 <: AbstractObservable, O2 <: AbstractObservable} <: AbstractObservable
+    outer::O1
+    inner::O2
+end
+max_delay(o::ChainedObs) = max_delay(o.outer) + max_delay(o.inner)
+
+function (o::ChainedObs)(X::AbstractMatrix, t::AbstractVector{Int})
+    Y = o.inner(X, t)
+    return o.outer(Y, 1:size(Y, 2))
+end
+
+Base.:∘(obs1::AbstractObservable, obs2::AbstractObservable) = ChainedObs(obs1, obs2)
+
 # Let D be unrestricted so it can hold Int, UnitRange, or Vector
 struct Delay{D}
     τ::D
