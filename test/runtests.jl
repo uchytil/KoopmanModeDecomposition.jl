@@ -33,17 +33,14 @@ using Test
         X = [2.0 3.0;   # Variable 1 (x₁)
             4.0 5.0]   # Variable 2 (x₂)
 
-        # Degree 2 of 2 variables has 6 terms: 1, x₁, x₂, x₁², x₁*x₂, x₂²
+        # Exact degree 2 of 2 variables has 3 terms: x₁², x₁*x₂, x₂²
         m1 = Monomials(2)
         Y1 = m1(X, 1:2)
 
-        @test size(Y1) == (6, 2)
+        @test size(Y1) == (3, 2)
 
         # The expected exact values column-by-column
         expected_Y1 = [
-            1.0 1.0;   # 1
-            2.0 3.0;   # x₁
-            4.0 5.0;   # x₂
             4.0 9.0;   # x₁²
             8.0 15.0;   # x₁ * x₂
             16.0 25.0    # x₂²
@@ -52,12 +49,58 @@ using Test
         # Check that our framework correctly computes the exact math
         @test isapprox(Y1, expected_Y1, atol=1e-10)
 
-        # Dropping the constant should leave 5 terms (Rows 2 through 6)
-        m2 = Monomials(2, drop_constant=true)
+        # Degree range 1:2 should include degree-1 and degree-2 terms
+        m2 = Monomials(1:2)
         Y2 = m2(X, 1:2)
 
+        expected_Y2 = [
+            2.0 3.0;    # x₁
+            4.0 5.0;    # x₂
+            4.0 9.0;    # x₁²
+            8.0 15.0;   # x₁ * x₂
+            16.0 25.0   # x₂²
+        ]
+
         @test size(Y2) == (5, 2)
-        @test isapprox(Y2, expected_Y1[2:end, :], atol=1e-10)
+        @test isapprox(Y2, expected_Y2, atol=1e-10)
+
+        # Explicit degree list should be supported
+        m3 = Monomials([1, 2, 8])
+        Y3 = m3(X, 1:2)
+        @test size(Y3) == (14, 2) # (1+1) + (2+1) + (8+1) terms for 2 variables
+
+        # Degree 0 is the constant monomial
+        m4 = Monomials([0, 2])
+        Y4 = m4(X, 1:2)
+
+        expected_Y4 = [
+            1.0 1.0;
+            4.0 9.0;
+            8.0 15.0;
+            16.0 25.0
+        ]
+
+        @test size(Y4) == (4, 2)
+        @test isapprox(Y4, expected_Y4, atol=1e-10)
+
+        # Degree 0 alone should produce only the constant monomial
+        m5 = Monomials(0)
+        Y5 = m5(X, 1:2)
+        @test size(Y5) == (1, 2)
+        @test isapprox(Y5, ones(1, 2), atol=1e-10)
+
+        # Duplicate degrees should be interpreted literally (no deduplication)
+        m6 = Monomials([2, 1, 2])
+        Y6 = m6(X, 1:2)
+        expected_Y6 = vcat(expected_Y1, expected_Y2[1:2, :], expected_Y1)
+        @test size(Y6) == (8, 2)
+        @test isapprox(Y6, expected_Y6, atol=1e-10)
+
+        # Invalid degree specifications should throw
+        @test_throws ArgumentError Monomials(-1)
+        @test_throws ArgumentError Monomials(Int[])
+        @test_throws ArgumentError Monomials(-1:1)
+        @test_throws MethodError Monomials(2, drop_constant=true)
     end
 
     @testset "3. Solvers (Linear Recovery)" begin

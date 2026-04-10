@@ -21,8 +21,12 @@ X = rand(3, 100)
 lifting = [
     Identity();                                  # The raw states
     Delay(1:3) ∘ Identity(1:2);                  # Block delays (τ=1,2,3) on vars 1 & 2
-    Monomials(2, drop_constant=true)             # 2nd-degree polynomials
+    Monomials(2)                                 # Exactly 2nd-degree monomials
 ]
+
+# Alternative monomial degree selections:
+# Monomials(1:2)         # Exactly degree 1 and 2
+# Monomials([0, 2, 8])   # Exactly degrees 0, 2, and 8 (degree 0 is the constant)
 
 # 3. Fit the model using a Truncated SVD solver
 solver = TruncatedSVD(atol=1e-4)

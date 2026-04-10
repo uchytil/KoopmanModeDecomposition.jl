@@ -1,37 +1,54 @@
-function exponent_vectors(n::Int, α::Int; drop_constant::Bool = false)
+function exponent_vector(n::Int, total_degree::Int)
     exps = Vector{Vector{Int}}()
-    for total in 0:α
-        if drop_constant && total == 0
-            continue
+    current = zeros(Int, n)
+    function gen(i::Int, remaining::Int)
+        if i == 1
+            current[1] = remaining
+            push!(exps, copy(current))
+            return
         end
-        current = zeros(Int, n)
-        function gen(i::Int, remaining::Int)
-            if i == 1
-                current[1] = remaining
-                push!(exps, copy(current))
-                return
-            end
-            for v in 0:remaining
-                current[i] = v
-                gen(i - 1, remaining - v)
-            end
+        for v in 0:remaining
+            current[i] = v
+            gen(i - 1, remaining - v)
         end
-        gen(n, total)
     end
+    gen(n, total_degree)
     return exps
 end
 
 struct Monomials{O <: AbstractObservable} <: AbstractObservable
     obs::O
-    α::Int
-    drop_constant::Bool
+    degrees::Vector{Int}
+    function Monomials(obs::O, degrees::Vector{Int}) where {O <: AbstractObservable}
+        if isempty(degrees)
+            throw(ArgumentError("degree list cannot be empty"))
+        end
+        if any(d -> d < 0, degrees)
+            throw(ArgumentError("degrees must be nonnegative"))
+        end
+        return new{O}(obs, degrees)
+    end
 end
 
-Monomials(α::Int; drop_constant::Bool=false) = Monomials(Identity(), α, drop_constant)
+Monomials(obs::O, degrees::AbstractVector{<:Integer}) where {O <: AbstractObservable} = Monomials(obs, Int.(degrees))
+Monomials(obs::O, degree::Integer) where {O <: AbstractObservable} = Monomials(obs, [Int(degree)])
+Monomials(obs::O, degrees::AbstractUnitRange{<:Integer}) where {O <: AbstractObservable} = Monomials(obs, collect(Int, degrees))
 
-Base.:∘(m::Monomials{<:Identity}, obs::AbstractObservable) = Monomials(obs, m.α, m.drop_constant)
+Monomials(degree::Integer) = Monomials(Identity(), degree)
+Monomials(degrees::AbstractUnitRange{<:Integer}) = Monomials(Identity(), degrees)
+Monomials(degrees::AbstractVector{<:Integer}) = Monomials(Identity(), degrees)
+
+Base.:∘(m::Monomials{<:Identity}, obs::AbstractObservable) = Monomials(obs, copy(m.degrees))
 
 max_delay(m::Monomials) = max_delay(m.obs)
+
+function monomial_exponents(n::Int, degrees::Vector{Int})
+    exps = Vector{Vector{Int}}()
+    for total_degree in degrees
+        append!(exps, exponent_vector(n, total_degree))
+    end
+    return exps
+end
 
 
 function (m::Monomials)(X::AbstractMatrix, t::AbstractVector{Int})
@@ -40,7 +57,7 @@ function (m::Monomials)(X::AbstractMatrix, t::AbstractVector{Int})
     n, T = size(Y)
     
     # Generate exponent vectors dynamically based on inner dimension 'n'
-    exps = exponent_vectors(n, m.α; drop_constant = m.drop_constant)
+    exps = monomial_exponents(n, m.degrees)
     
     # Preallocate the lifted matrix
     out = zeros(eltype(Y), length(exps), T)
