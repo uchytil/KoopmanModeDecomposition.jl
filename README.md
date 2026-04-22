@@ -37,9 +37,22 @@ model = fit(solver, lifting, X)
 X = X[:, end-3:end]
 Y = predict(model, X, 50)   # Predict 50 steps forward
 
+# 5. Compute a modal decomposition of the learned Koopman model
+decomp = decompose(model)
+
+# Koopman eigenvalues
+λ = decomp.eigenvalues
+
+# Koopman modes that reconstruct the original state
+V = decomp.modes
+
+# Evaluate Koopman eigenfunctions on state snapshots
+ϕ = eigenfunctions(decomp, model, X)
+
 ```
 
 ## Features
 - Function composition using the `∘` and `vcat` operators
 - Time-delay embedding support via single delays `Delay(1)`, block delays `Delay(1:5)`, and arbitrary delay combinations `Delay([2,8])`.
 - Support for multiple regression solvers. So far `PseudoInverse()` and `TruncatedSVD()` are available.
+- Modal decomposition utilities for extracting Koopman eigenvalues, modes, and eigenfunctions from fitted models.

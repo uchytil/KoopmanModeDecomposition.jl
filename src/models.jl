@@ -1,7 +1,16 @@
-struct KoopmanModel{O <: AbstractObservable, M <: AbstractMatrix}
+struct KoopmanModel{O <: AbstractObservable, M <: AbstractMatrix, D}
     dict::O
     operator::M
+    projection::D
 end
+
+KoopmanModel(dict::O, operator::M) where {O <: AbstractObservable, M <: AbstractMatrix} =
+    KoopmanModel(dict, operator, nothing)
+
+labels(model::KoopmanModel, state_labels::AbstractVector{<:AbstractString}) = labels(model.dict, state_labels)
+labels(model::KoopmanModel, n_states::Int) = labels(model.dict, n_states)
+label(model::KoopmanModel, state_labels::AbstractVector{<:AbstractString}, idx::Int) = label(model.dict, state_labels, idx)
+label(model::KoopmanModel, n_states::Int, idx::Int) = label(model.dict, n_states, idx)
 
 function predict(model::KoopmanModel, X::AbstractMatrix, steps::Int)
     d = max_delay(model.dict)

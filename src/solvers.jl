@@ -1,5 +1,25 @@
 abstract type AbstractKoopmanSolver end
 
+function fit_projection(dict::AbstractObservable, X::AbstractMatrix)
+    Y = dict(X)
+    d = max_delay(dict)
+    X_target = @view X[:, d + 1:end]
+    return X_target * pinv(Y)
+end
+
+function fit_projection(dict::AbstractObservable, Xs::Vector{<:AbstractMatrix})
+    Y = AbstractMatrix[]
+    X_target = AbstractMatrix[]
+
+    d = max_delay(dict)
+    for X in Xs
+        push!(Y, dict(X))
+        push!(X_target, @view X[:, d + 1:end])
+    end
+
+    return reduce(hcat, X_target) * pinv(reduce(hcat, Y))
+end
+
 struct PseudoInverse <: AbstractKoopmanSolver end
 
 function fit(::PseudoInverse, Y::AbstractMatrix, Y_next::AbstractMatrix)
@@ -35,8 +55,9 @@ function fit(solver::AbstractKoopmanSolver, dict::AbstractObservable, X::Abstrac
     Y_next = @view Y_full[:, 2:end]
 
     K = fit(solver, Y, Y_next)
+    projection = fit_projection(dict, X)
 
-    return KoopmanModel(dict, K)
+    return KoopmanModel(dict, K, projection)
 end
 
 
@@ -56,6 +77,7 @@ function fit(solver::AbstractKoopmanSolver, dict::AbstractObservable, Xs::Vector
     Y_next = reduce(hcat, Y_next)
 
     K = fit(solver, Y, Y_next)
+    projection = fit_projection(dict, Xs)
 
-    return KoopmanModel(dict, K)
+    return KoopmanModel(dict, K, projection)
 end

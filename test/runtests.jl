@@ -2,6 +2,11 @@ using KoopmanModeDecomposition
 using LinearAlgebra
 using Test
 
+struct PairwiseSumObs <: KoopmanModeDecomposition.AbstractObservable end
+KoopmanModeDecomposition.max_delay(::PairwiseSumObs) = 0
+(::PairwiseSumObs)(X::AbstractMatrix, t::AbstractVector{Int}) = reshape(sum(X[:, t]; dims=1), 1, :)
+KoopmanModeDecomposition.labels(::PairwiseSumObs, state_labels::AbstractVector{<:AbstractString}) = [join(state_labels, " + ")]
+
 @testset "KoopmanModeDecomposition.jl" begin
     @testset "1. Observables & Delays" begin
         X = reshape(1.0:20.0, 2, 10) # 2 variables, 10 timesteps
@@ -175,5 +180,85 @@ using Test
         # Passing 3 snapshots should work
         Y_traj2 = predict(model_delay, X[:, 1:3], 5)
         @test size(Y_traj2) == (4, 1 + 5) # 4 lifted rows, 1 valid start + 5 future
+    end
+
+    @testset "6. Modal Decomposition" begin
+        A_true = [1.2 0.3; 0.0 0.7]
+        X = zeros(2, 80)
+        X[:, 1] = [1.0, -0.5]
+        for t in 1:79
+            X[:, t + 1] = A_true * X[:, t]
+        end
+
+        model = fit(PseudoInverse(), Identity(), X)
+        decomp = decompose(model)
+
+        expected_eigs = sort(collect(eigvals(A_true)); by = x -> (real(x), imag(x)))
+        learned_eigs = sort(collect(decomp.eigenvalues); by = x -> (real(x), imag(x)))
+
+        @test isapprox(learned_eigs, expected_eigs, atol = 1e-8)
+
+        ϕ = eigenfunctions(decomp, model, X)
+
+        @test size(ϕ) == (2, size(X, 2))
+        @test isapprox(decomp.modes * ϕ, X, atol = 1e-6)
+        @test isapprox(ϕ[:, 2:end], Diagonal(decomp.eigenvalues) * ϕ[:, 1:end-1], atol = 1e-6)
+    end
+
+    @testset "7. Labels" begin
+        obs = [
+            Identity();
+            Delay(2) ∘ Identity(1:2);
+            Monomials([0, 2]) ∘ [Identity(1); Delay(1) ∘ Identity(2)]
+        ]
+
+        observable_labels = labels(obs, 3)
+
+        @test observable_labels == [
+            "x[1]",
+            "x[2]",
+            "x[3]",
+            "delay(x[1], 2)",
+            "delay(x[2], 2)",
+            "1",
+            "(x[1])^2",
+            "x[1] * delay(x[2], 1)",
+            "(delay(x[2], 1))^2"
+        ]
+
+        @test label(obs, 3, 4) == "delay(x[1], 2)"
+
+        X = rand(3, 20)
+        model = fit(PseudoInverse(), obs, X)
+        @test label(model, 3, 9) == "(delay(x[2], 1))^2"
+        @test labels(obs, ["theta", "omega", "u"])[4] == "delay(theta, 2)"
+
+        custom_obs = [PairwiseSumObs(); Delay(1) ∘ PairwiseSumObs()]
+        @test labels(custom_obs, ["a", "b", "c"]) == ["a + b + c", "delay(a + b + c, 1)"]
+
+        shown_obs = [
+            Identity(1:3);
+            Delay(2) ∘ Identity(1:2);
+            Monomials([0, 2]) ∘ [Identity(1); Delay(1) ∘ Identity(2)]
+        ]
+        shown = sprint(show, MIME"text/plain"(), shown_obs)
+        @test occursin("lifting: 3 -> 9 (max delay: 2)", shown)
+        @test occursin("\n x[1]", shown)
+        @test occursin("\n (delay(x[2], 1))^2", shown)
+        @test !occursin("1: x[1]", shown)
+
+        tall_obs = [
+            Identity(1:2);
+            Monomials([2, 3]) ∘ [Identity(2); inv ∘ Identity(1)]
+        ]
+        shown_truncated = sprint(show, MIME"text/plain"(), tall_obs; context=:displaysize => (8, 80))
+        @test occursin("lifting: 2 -> 9", shown_truncated)
+        @test occursin("\n x[1]", shown_truncated)
+        @test occursin("\n ⋮", shown_truncated)
+        @test occursin("\n (inv(x[1]))^3", shown_truncated)
+
+        shown_unknown = sprint(show, MIME"text/plain"(), [Identity(); Monomials(2)])
+        @test occursin("lifting: ? -> ?", shown_unknown)
+        @test occursin("use `labels(obs, n_states)` to display expressions", shown_unknown)
     end
 end

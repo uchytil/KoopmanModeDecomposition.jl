@@ -41,6 +41,42 @@ Monomials(degrees::AbstractVector{<:Integer}) = Monomials(Identity(), degrees)
 Base.:∘(m::Monomials{<:Identity}, obs::AbstractObservable) = Monomials(obs, copy(m.degrees))
 
 max_delay(m::Monomials) = max_delay(m.obs)
+_label_state_count(m::Monomials) = _label_state_count(m.obs)
+
+function _degrees_repr(degrees::Vector{Int})
+    length(degrees) == 1 && return string(only(degrees))
+    return repr(degrees)
+end
+
+function _observable_repr(m::Monomials)
+    monomial_repr = "Monomials($(_degrees_repr(m.degrees)))"
+    if m.obs isa Identity && m.obs.idx isa Colon
+        return monomial_repr
+    end
+    return monomial_repr * " ∘ " * _observable_repr(m.obs)
+end
+
+function _power_expression(expr::AbstractString, exponent::Int)
+    exponent == 1 && return expr
+    return "($(expr))^$(exponent)"
+end
+
+function _monomial_expression(obs_labels::Vector{String}, exponents::Vector{Int})
+    factors = String[]
+    for (obs_label, exponent) in zip(obs_labels, exponents)
+        exponent == 0 && continue
+        push!(factors, _power_expression(obs_label, exponent))
+    end
+
+    isempty(factors) && return "1"
+    return join(factors, " * ")
+end
+
+function labels(m::Monomials, state_labels::AbstractVector{<:AbstractString})
+    obs_labels = labels(m.obs, state_labels)
+    exponents = monomial_exponents(length(obs_labels), m.degrees)
+    return [_monomial_expression(obs_labels, exponent) for exponent in exponents]
+end
 
 function monomial_exponents(n::Int, degrees::Vector{Int})
     exps = Vector{Vector{Int}}()

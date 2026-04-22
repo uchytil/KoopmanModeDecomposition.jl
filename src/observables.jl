@@ -1,5 +1,21 @@
 abstract type AbstractObservable end
 
+function labels(obs::AbstractObservable, state_labels::AbstractVector{<:AbstractString})
+    throw(MethodError(labels, (obs, state_labels)))
+end
+
+function labels(obs::AbstractObservable, n_states::Int)
+    return labels(obs, _default_state_labels(n_states))
+end
+
+function label(obs::AbstractObservable, state_labels::AbstractVector{<:AbstractString}, idx::Int)
+    obs_labels = labels(obs, state_labels)
+    checkbounds(obs_labels, idx)
+    return obs_labels[idx]
+end
+
+label(obs::AbstractObservable, n_states::Int, idx::Int) = label(obs, _default_state_labels(n_states), idx)
+
 function (obs::AbstractObservable)(X::AbstractMatrix)
     d = max_delay(obs)
     t = (d + 1):size(X, 2)
@@ -13,12 +29,17 @@ Identity() = Identity(Colon())
 Identity(idx::Int) = Identity(idx:idx)
 max_delay(::Identity) = 0
 (o::Identity)(X::AbstractMatrix, t::AbstractVector{Int}) = X[o.idx, t]
+labels(o::Identity, state_labels::AbstractVector{<:AbstractString}) = String.(state_labels[o.idx])
+
+_function_label(f) = string(f)
+_delay_expression(expr::AbstractString, τ::Int) = τ == 0 ? expr : "delay($(expr), $(τ))"
 
 struct BroadcastObs{F} <: AbstractObservable
     f::F
 end
 max_delay(::BroadcastObs) = 0
 (o::BroadcastObs)(X::AbstractMatrix, t::AbstractVector{Int}) = o.f.(X[:, t])
+labels(o::BroadcastObs, state_labels::AbstractVector{<:AbstractString}) = ["$(_function_label(o.f))($(state_label))" for state_label in state_labels]
 
 struct MappedObs{F, O <: AbstractObservable} <: AbstractObservable
     f::F
@@ -26,6 +47,7 @@ struct MappedObs{F, O <: AbstractObservable} <: AbstractObservable
 end
 max_delay(o::MappedObs) = max_delay(o.obs)
 (o::MappedObs)(X::AbstractMatrix, t::AbstractVector{Int}) = o.f.(o.obs(X, t))
+labels(o::MappedObs, state_labels::AbstractVector{<:AbstractString}) = ["$(_function_label(o.f))($(obs_label))" for obs_label in labels(o.obs, state_labels)]
 
 Base.:∘(f::Function, obs::AbstractObservable) = MappedObs(f, obs)
 
@@ -40,6 +62,7 @@ function (o::ChainedObs)(X::AbstractMatrix, t::AbstractVector{Int})
     Y = o.inner(X, t)
     return o.outer(Y, 1:size(Y, 2))
 end
+labels(o::ChainedObs, state_labels::AbstractVector{<:AbstractString}) = labels(o.outer, labels(o.inner, state_labels))
 
 Base.:∘(obs1::AbstractObservable, obs2::AbstractObservable) = ChainedObs(obs1, obs2)
 
@@ -63,9 +86,18 @@ _max_d(d::AbstractVector) = maximum(d)
 max_delay(o::DelayObs) = _max_d(o.delay) + max_delay(o.obs)
 
 (o::DelayObs{<:Any, Int})(X::AbstractMatrix, t::AbstractVector{Int}) = o.obs(X, t .- o.delay)
+labels(o::DelayObs{<:Any, Int}, state_labels::AbstractVector{<:AbstractString}) = [_delay_expression(obs_label, o.delay) for obs_label in labels(o.obs, state_labels)]
 
 (o::DelayObs{<:Any, <:AbstractVector})(X::AbstractMatrix, t::AbstractVector{Int}) = 
     mapreduce(τ -> o.obs(X, t .- τ), vcat, o.delay)
+function labels(o::DelayObs{<:Any, <:AbstractVector}, state_labels::AbstractVector{<:AbstractString})
+    out = String[]
+    obs_labels = labels(o.obs, state_labels)
+    for τ in o.delay
+        append!(out, [_delay_expression(obs_label, τ) for obs_label in obs_labels])
+    end
+    return out
+end
 
 _combine_delays(d1::Int, d2::Int) = d1 + d2
 _combine_delays(d1::Int, d2::AbstractVector) = d1 .+ d2
@@ -88,7 +120,74 @@ struct StackedObs{T <: Tuple} <: AbstractObservable
 end
 max_delay(o::StackedObs) = maximum(max_delay.(o.observables))
 (o::StackedObs)(X::AbstractMatrix, t::AbstractVector{Int}) = mapreduce(obs -> obs(X, t), vcat, o.observables)
+function labels(o::StackedObs, state_labels::AbstractVector{<:AbstractString})
+    out = String[]
+    for obs in o.observables
+        append!(out, labels(obs, state_labels))
+    end
+    return out
+end
 
 wrap_obs(f::Function) = BroadcastObs(f)
 wrap_obs(o::AbstractObservable) = o
 Base.vcat(args::Union{Function, AbstractObservable}...) = StackedObs(map(wrap_obs, args))
+
+_state_count(::Colon) = nothing
+_state_count(idx::Int) = idx
+_state_count(idx::AbstractUnitRange{<:Integer}) = isempty(idx) ? 0 : last(idx)
+_state_count(idx::AbstractVector{<:Integer}) = isempty(idx) ? 0 : maximum(idx)
+
+_merge_state_counts(counts) = any(isnothing, counts) ? nothing : maximum(counts; init=0)
+
+_label_state_count(::BroadcastObs) = nothing
+_label_state_count(o::Identity) = _state_count(o.idx)
+_label_state_count(o::MappedObs) = _label_state_count(o.obs)
+_label_state_count(o::ChainedObs) = _label_state_count(o.inner)
+_label_state_count(o::DelayObs) = _label_state_count(o.obs)
+_label_state_count(o::StackedObs) = _merge_state_counts(_label_state_count.(o.observables))
+
+function _show_entries(io::IO, entries::AbstractVector{<:AbstractString}, reserved_lines::Int)
+    available_lines = max(displaysize(io)[1] - reserved_lines, 1)
+
+    if length(entries) <= available_lines
+        for entry in entries
+            print(io, "\n ", entry)
+        end
+        return
+    end
+
+    visible_lines = max(available_lines - 1, 0)
+    head = cld(visible_lines, 2)
+    tail = fld(visible_lines, 2)
+
+    for entry in entries[1:head]
+        print(io, "\n ", entry)
+    end
+
+    print(io, "\n ⋮")
+
+    for entry in entries[end-tail+1:end]
+        print(io, "\n ", entry)
+    end
+end
+
+function Base.show(io::IO, ::MIME"text/plain", obs::AbstractObservable)
+    n_states = _label_state_count(obs)
+    delay = max_delay(obs)
+
+    if isnothing(n_states)
+        print(io, "lifting: ? -> ?")
+        if delay > 0
+            print(io, " (max delay: ", delay, ")")
+        end
+        print(io, "\n use `labels(obs, n_states)` to display expressions")
+        return
+    end
+
+    obs_labels = labels(obs, n_states)
+    print(io, "lifting: ", n_states, " -> ", length(obs_labels))
+    if delay > 0
+        print(io, " (max delay: ", delay, ")")
+    end
+    _show_entries(io, obs_labels, 1)
+end
